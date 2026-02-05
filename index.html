@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>爬楼健身笔记 - 含历史记录</title>
+    <style>
+        :root {
+            --primary: #27ae60;
+            --accent: #2980b9;
+            --danger: #e74c3c;
+            --bg: #f8f9fa;
+            --dark: #2c3e50;
+        }
+        body {
+            font-family: -apple-system, system-ui, sans-serif;
+            background-color: var(--bg);
+            margin: 0; padding: 15px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        .container {
+            width: 100%; max-width: 500px;
+            background: white; padding: 20px;
+            border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+        h1, h2 { text-align: center; color: var(--dark); margin-top: 0; }
+        
+        /* 按钮样式 */
+        .btn-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        button {
+            flex: 1; padding: 12px; border: none; border-radius: 8px;
+            font-size: 15px; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        .btn-add { background: var(--primary); color: white; }
+        .btn-finish { background: var(--accent); color: white; }
+        button:active { transform: scale(0.98); }
+
+        /* 动态行样式 */
+        .record-row {
+            display: flex; align-items: center; justify-content: space-between;
+            background: #f1f3f5; padding: 12px;
+            border-radius: 8px; margin-bottom: 10px;
+        }
+        .floor-input {
+            width: 50px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; text-align: center;
+        }
+        .timer-val { font-family: monospace; font-size: 1.2rem; font-weight: bold; }
+        .btn-timer { background: #ddd; padding: 6px 12px; flex: none; width: auto; }
+        .btn-timer.running { background: var(--danger); color: white; }
+
+        /* 汇总和历史样式 */
+        #summary, .history-section {
+            margin-top: 20px; padding: 15px; border-radius: 10px;
+        }
+        #summary { background: var(--dark); color: white; display: none; }
+        
+        .history-section { width: 100%; max-width: 500px; }
+        .history-card {
+            background: white; padding: 12px; border-radius: 8px;
+            margin-bottom: 10px; border-left: 4px solid var(--accent);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            position: relative;
+        }
+        .history-date { font-size: 0.85rem; color: #666; margin-bottom: 5px; }
+        .history-data { display: flex; justify-content: space-between; font-weight: bold; }
+        .btn-del {
+            position: absolute; right: 10px; top: 10px;
+            background: none; color: #ccc; font-size: 12px; cursor: pointer; border: none; width: auto;
+        }
+        .btn-del:hover { color: var(--danger); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🧗‍♂️ 爬楼助手</h1>
+    
+    <div class="btn-group">
+        <button class="btn-add" onclick="addRow()">+ 新增一轮</button>
+        <button class="btn-finish" onclick="finishSession()">🏁 结束并保存</button>
+    </div>
+
+    <div id="activeList"></div>
+
+    <div id="summary">
+        <h3 style="margin:0 0 10px 0">✨ 本次成果</h3>
+        <div id="sumResult"></div>
+    </div>
+</div>
+
+<div class="history-section">
+    <h2>条历史记录</h2>
+    <div id="historyList"></div>
+</div>
+
+<script>
+    let rows = [];
+    let history = JSON.parse(localStorage.getItem('stairHistory') || '[]');
+
+    // 初始化显示历史
+    renderHistory();
+
+    function addRow() {
+        const id = Date.now();
+        const rowObj = { id, startTime: null, elapsed: 0, interval: null, status: 'ready' };
+        rows.push(rowObj);
+
+        const rowHtml = document.createElement('div');
+        rowHtml.className = 'record-row';
+        rowHtml.id = `row-${id}`;
+        rowHtml.innerHTML = `
+            <span>#${rows.length}</span>
+            <input type="number" placeholder="层数" class="f-in" id="f-${id}">
+            <span class="timer-val" id="t-${id}">00:00</span>
+            <button class="btn-timer" id="b-${id}" onclick="toggleTimer(${id})">开始</button>
+        `;
+        document.getElementById('activeList').prepend(rowHtml);
+    }
+
+    function toggleTimer(id) {
+        const row = rows.find(r => r.id === id);
+        const btn = document.getElementById(`b-${id}`);
+        const display = document.getElementById(`t-${id}`);
+
+        if (row.status === 'ready' || row.status === 'stopped') {
+            row.status = 'running';
+            row.startTime = Date.now() - row.elapsed;
+            row.interval = setInterval(() => {
+                row.elapsed = Date.now() - row.startTime;
+                display.innerText = formatTime(row.elapsed);
+            }, 100);
+            btn.innerText = '停止';
+            btn.classList.add('running');
+        } else {
+            row.status = 'stopped';
+            clearInterval(row.interval);
+            btn.innerText = '结束';
+            btn.disabled = true;
+            btn.classList.remove('running');
+            btn.style.opacity = 0.5;
+        }
+    }
+
+    function formatTime(ms) {
+        const s = Math.floor(ms / 1000);
+        const m = Math.floor(s / 60);
+        return `${String(m).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}`;
+    }
+
+    function finishSession() {
+        let totalF = 0;
+        let totalMs = 0;
+        
+        rows.forEach(row => {
+            const input = document.getElementById(`f-${row.id}`);
+            totalF += parseInt(input.value) || 0;
+            totalMs += row.elapsed;
+        });
+
+        if (totalF === 0 && totalMs === 0) return alert("没有检测到数据");
+
+        const avg = totalF > 0 ? ((totalMs/1000)/totalF).toFixed(1) : 0;
+        const timeStr = formatTime(totalMs);
+
+        // 显示本次汇总
+        const sumDiv = document.getElementById('summary');
+        sumDiv.style.display = 'block';
+        document.getElementById('sumResult').innerHTML = `
+            总层数：${totalF}层 | 总用时：${timeStr}<br>
+            平均速度：${avg} 秒/层
+        `;
+
+        // 保存到历史记录
+        const record = {
+            id: Date.now(),
+            date: new Date().toLocaleString(),
+            floors: totalF,
+            duration: timeStr,
+            avg: avg
+        };
+        history.unshift(record);
+        localStorage.setItem('stairHistory', JSON.stringify(history));
+        
+        // 重置当前
+        rows = [];
+        document.getElementById('activeList').innerHTML = '';
+        renderHistory();
+    }
+
+    function renderHistory() {
+        const list = document.getElementById('historyList');
+        list.innerHTML = history.map(item => `
+            <div class="history-card">
+                <button class="btn-del" onclick="deleteHistory(${item.id})">删除</button>
+                <div class="history-date">${item.date}</div>
+                <div class="history-data">
+                    <span>${item.floors} 层</span>
+                    <span>⏱️ ${item.duration}</span>
+                    <span>🚀 ${item.avg}s/层</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function deleteHistory(id) {
+        if(confirm('确定删除这条记录吗？')) {
+            history = history.filter(h => h.id !== id);
+            localStorage.setItem('stairHistory', JSON.stringify(history));
+            renderHistory();
+        }
+    }
+</script>
+
+</body>
+</html>
